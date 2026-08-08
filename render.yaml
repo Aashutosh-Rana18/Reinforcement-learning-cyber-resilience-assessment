@@ -5,8 +5,7 @@ services:
     repo: https://github.com/Aashutosh-Rana18/Reinforcement-learning-cyber-resilience-assessment
     branch: main
     buildCommand: pip install -r requirements.txt
-    # FIX: Use gunicorn with gevent websocket worker for production stability
-    startCommand: gunicorn -k geventwebsocket.gunicorn.workers.GeventWebSocketWorker -w 1 --bind 0.0.0.0:$PORT backend_api:app
+    startCommand: gunicorn -w 1 --bind 0.0.0.0:$PORT backend_api:app
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.0
