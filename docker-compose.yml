@@ -1,0 +1,26 @@
+version: "3.8"
+
+services:
+  cyber-rl:
+    build: .
+    image: cyber-rl:v14
+    container_name: cyberresilience-rl
+    network_mode: host
+    volumes:
+      - ./checkpoints_real:/app/checkpoints_real
+      - ./wordlists:/app/wordlists
+      - ./logs:/app/logs
+    environment:
+      - CYBER_RL_MODE=real
+      - TARGET_URL=http://host.docker.internal:3000
+    ports:
+      - "5000:5000"
+      - "8501:8501"
+    command: python3 use_tool.py --api
+
+  juice-shop:
+    image: bkimminich/juice-shop:latest
+    ports:
+      - "3000:3000"
+    profiles:
+      - target

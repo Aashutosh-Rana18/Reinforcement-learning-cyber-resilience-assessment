@@ -1,0 +1,28 @@
+services:
+  - type: web
+    name: cyberresilience-rl-api
+    runtime: python
+    repo: https://github.com/Aashutosh-Rana18/Reinforcement-learning-cyber-resilience-assessment-1.9
+    branch: main
+    buildCommand: pip install -r requirements.txt
+    startCommand: python backend_api.py
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      - key: SECRET_KEY
+        generateValue: true
+    plan: standard
+
+  - type: web
+    name: cyberresilience-rl-dashboard
+    runtime: python
+    repo: https://github.com/Aashutosh-Rana18/Reinforcement-learning-cyber-resilience-assessment-1.9
+    branch: main
+    buildCommand: pip install -r requirements.txt
+    startCommand: streamlit run dashboard.py --server.port $PORT --server.address 0.0.0.0
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      - key: API_BASE_URL
+        value: https://cyberresilience-rl-api.onrender.com
+    plan: standard
