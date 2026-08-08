@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""CyberResilience RL - Full Backend API with JWT + OTP + Real Tool Integration"""
+"""CyberResilience RL - Backend API with JWT + OTP + SocketIO (Eventlet)"""
 import os, sys, uuid, json, hashlib, secrets, logging
 from datetime import datetime, timedelta
 from functools import wraps
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional
 
 from flask import Flask, request, jsonify
 from flask_cors import CORS
@@ -22,12 +22,11 @@ app.config['JWT_SECRET'] = os.getenv('JWT_SECRET', secrets.token_hex(32))
 
 CORS(app, resources={r"/api/*": {"origins": "*"}})
 
-# FIX: Explicit async_mode='gevent' for production stability
-socketio = SocketIO(app, async_mode='gevent', cors_allowed_origins="*", logger=True, engineio_logger=True)
+# FIX: Use eventlet async_mode (stable on Render)
+socketio = SocketIO(app, async_mode='eventlet', cors_allowed_origins="*")
 
 limiter = Limiter(app=app, key_func=get_remote_address, default_limits=["200 per day", "50 per hour"])
 
-# In-memory storage (replace with SQLAlchemy/PostgreSQL in production)
 _db = {"users": {}, "attacks": {}, "otp_codes": {}, "sessions": {}, "logs": []}
 
 # ===================== AUTH & OTP =====================
@@ -78,25 +77,16 @@ def require_auth(f):
 # ===================== HEALTH =====================
 @app.route('/')
 def index():
-    return jsonify({
-        "service": "CyberResilience RL API",
-        "version": "14.0.1",
-        "mode": "real",
-        "status": "online"
-    })
+    return jsonify({"service": "CyberResilience RL API", "version": "14.0.3", "mode": "real", "status": "online"})
 
 @app.route('/health')
 def health_check():
-    return jsonify({
-        "status": "healthy",
-        "timestamp": datetime.utcnow().isoformat(),
-        "version": "14.0.1"
-    })
+    return jsonify({"status": "healthy", "timestamp": datetime.utcnow().isoformat(), "version": "14.0.3"})
 
 # ===================== AUTH ROUTES =====================
 @app.route('/api/auth/register', methods=['POST'])
 def register():
-    data = request.json
+    data = request.json or {}
     email, password = data.get('email'), data.get('password')
     if not email or not password:
         return jsonify({"success": False, "error": "Email and password required"}), 400
@@ -104,8 +94,7 @@ def register():
         return jsonify({"success": False, "error": "User already exists"}), 409
     user_id = str(uuid.uuid4())
     _db["users"][email] = {
-        "id": user_id,
-        "email": email,
+        "id": user_id, "email": email,
         "password_hash": hash_password(password),
         "created_at": datetime.utcnow().isoformat(),
         "verified": False
@@ -114,7 +103,7 @@ def register():
 
 @app.route('/api/auth/login', methods=['POST'])
 def login():
-    data = request.json
+    data = request.json or {}
     email, password = data.get('email'), data.get('password')
     user = _db["users"].get(email)
     if not user or user["password_hash"] != hash_password(password):
@@ -129,7 +118,7 @@ def login():
 
 @app.route('/api/auth/verify-otp', methods=['POST'])
 def verify_otp():
-    data = request.json
+    data = request.json or {}
     user_id, otp = data.get('user_id'), data.get('otp')
     otp_data = _db["otp_codes"].get(user_id)
     if not otp_data:
@@ -146,26 +135,21 @@ def verify_otp():
 @app.route('/api/attacks', methods=['POST'])
 @require_auth
 def create_attack():
-    data = request.json
+    data = request.json or {}
     attack_id = str(uuid.uuid4())
     attack = {
-        "id": attack_id,
-        "target_url": data.get('target_url'),
+        "id": attack_id, "target_url": data.get('target_url'),
         "attack_mode": data.get('attack_mode', 'reconnaissance'),
         "aggression_level": data.get('aggression_level', 5),
         "timeout_seconds": data.get('timeout_seconds', 600),
-        "status": "created",
-        "created_at": datetime.utcnow().isoformat(),
-        "started_at": None,
-        "completed_at": None,
-        "vulnerabilities_found": 0,
-        "critical_vulns": 0,
-        "high_vulns": 0,
-        "user_id": request.user_id,
-        "metadata": {}
+        "status": "created", "created_at": datetime.utcnow().isoformat(),
+        "started_at": None, "completed_at": None,
+        "vulnerabilities_found": 0, "critical_vulns": 0, "high_vulns": 0,
+        "user_id": request.user_id, "metadata": {}
     }
     _db["attacks"][attack_id] = attack
     logger.info(f"Attack created: {attack_id}")
+    socketio.emit('attack_created', {"attack_id": attack_id, "status": "created"})
     return jsonify({"success": True, "attack_id": attack_id}), 201
 
 @app.route('/api/attacks', methods=['GET'])
@@ -191,6 +175,7 @@ def stop_attack(attack_id):
         return jsonify({"success": False, "error": "Attack not found"}), 404
     attack["status"] = "stopped"
     attack["completed_at"] = datetime.utcnow().isoformat()
+    socketio.emit('attack_stopped', {"attack_id": attack_id})
     return jsonify({"success": True, "message": "Attack stopped"})
 
 @app.route('/api/attacks/<attack_id>/metrics', methods=['GET'])
@@ -230,37 +215,36 @@ def payload_effectiveness():
 @app.route('/api/real/assess', methods=['POST'])
 @require_auth
 def real_assess():
-    """Execute real tools against target (requires explicit auth)"""
-    data = request.json
+    data = request.json or {}
     target = data.get('target_url')
     if not data.get('explicit_auth'):
         return jsonify({"success": False, "error": "explicit_auth required for real tool execution"}), 403
-
     attack_id = str(uuid.uuid4())
     _db["attacks"][attack_id] = {
-        "id": attack_id,
-        "target_url": target,
-        "status": "running",
-        "created_at": datetime.utcnow().isoformat(),
-        "user_id": request.user_id,
+        "id": attack_id, "target_url": target, "status": "running",
+        "created_at": datetime.utcnow().isoformat(), "user_id": request.user_id,
         "metadata": {"mode": "real", "real_tools": True}
     }
     logger.info(f"Real assessment started: {attack_id} against {target}")
+    socketio.emit('assessment_started', {"attack_id": attack_id, "target": target})
     return jsonify({"success": True, "attack_id": attack_id, "message": "Real assessment started"})
 
 # ===================== WEBSOCKET =====================
 @socketio.on('connect')
 def handle_connect():
-    logger.info("Client connected")
-    emit('status', {'message': 'Connected to CyberResilience RL'})
+    logger.info("Client connected via SocketIO")
+    emit('status', {'message': 'Connected to CyberResilience RL', 'timestamp': datetime.utcnow().isoformat()})
 
 @socketio.on('disconnect')
 def handle_disconnect():
     logger.info("Client disconnected")
 
+@socketio.on('ping')
+def handle_ping(data):
+    emit('pong', {'message': 'pong', 'timestamp': datetime.utcnow().isoformat()})
+
 # ===================== MAIN =====================
 if __name__ == '__main__':
-    # FIX: Use PORT (Render standard) with fallback to API_PORT then 5000
     port = int(os.getenv('PORT', os.getenv('API_PORT', 5000)))
     logger.info(f"Starting CyberResilience RL API on port {port}")
     socketio.run(app, host='0.0.0.0', port=port)
