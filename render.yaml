@@ -2,7 +2,7 @@ services:
   - type: web
     name: cyberresilience-rl-api
     runtime: python
-    repo: https://github.com/Aashutosh-Rana18/Reinforcement-learning-cyber-resilience-assessment-1.9
+    repo: https://github.com/Aashutosh-Rana18/Reinforcement-learning-cyber-resilience-assessment
     branch: main
     buildCommand: pip install -r requirements.txt
     startCommand: python backend_api.py
@@ -16,7 +16,7 @@ services:
   - type: web
     name: cyberresilience-rl-dashboard
     runtime: python
-    repo: https://github.com/Aashutosh-Rana18/Reinforcement-learning-cyber-resilience-assessment-1.9
+    repo: https://github.com/Aashutosh-Rana18/Reinforcement-learning-cyber-resilience-assessment
     branch: main
     buildCommand: pip install -r requirements.txt
     startCommand: streamlit run dashboard.py --server.port $PORT --server.address 0.0.0.0
